@@ -623,7 +623,7 @@ def admin_dashboard():
                              'semester': semester_filter
                          })
 
-@app.route('/student_dashboard')
+@app.route('/student_dashboard', methods=['GET', 'POST'])
 @login_required
 def student_dashboard():
     if session.get('role') == 'admin':
@@ -643,8 +643,27 @@ def student_dashboard():
         ORDER BY g.academic_year, g.semester, g.module_name
     ''', (session['user_id'],))
     grades = cursor.fetchall()
+
+    # Change address or phone number
+    if request.method == 'POST':
+        address = request.form['address']
+        phone = request.form['phone']
+
+        cursor.execute("""
+            UPDATE users
+            SET address = ?, phone = ?
+            WHERE id = ?
+            """, (address, phone, session['user_id']))
+
+        conn.commit()
+
+    cursor.execute(
+            "SELECT address, phone FROM users WHERE id = ?",
+            (session['user_id'],)
+        )
     
-    # The connection MUST be closed AFTER fetchall(), not before
+    address, phone = cursor.fetchone()
+    
     conn.close()
     
     # Process grades with status
@@ -666,19 +685,19 @@ def student_dashboard():
     # Get risk level and ranking
     risk_level = get_student_risk_level(session['user_id'])
     ranking, total_students, avg_grade = get_student_ranking(session['user_id'])
-    
-    # Get performance evolution
-    evolution_data = get_student_evolution(session['user_id'])
-    
-    return render_template('student_dashboard.html', 
-                         grades=processed_grades, 
-                         total_absences=total_absences,
-                         name=session['name'],
-                         risk_level=risk_level,
-                         ranking=ranking,
-                         total_students=total_students,
-                         avg_grade=avg_grade,
-                         evolution_data=evolution_data)
+
+    # Change address or phone number
+    if request.method == 'POST':
+        address = request.form['address']
+        phone = request.form['phone']
+
+        cursor.execute("""
+            UPDATE users
+            SET address = ?, phone = ?
+            WHERE id = ?
+            """, (address, phone, session['user_id']))
+
+        conn.commit()
 
     # Get performance evolution
     evolution_data = get_student_evolution(session['user_id'])
