@@ -264,7 +264,7 @@ def index():
     return redirect(url_for('login'))
 
 MAX_ATTEMPTS = 3
-LOCKOUT_MINUTES = 0.5
+LOCKOUT_MINUTES = 0.1
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
