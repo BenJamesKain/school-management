@@ -35,6 +35,19 @@ def init_db():
         )
     ''')
     print("Created users table")
+
+    # Security audit trail. TEXT user IDs also support the hardcoded admin account.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            user_id TEXT,
+            target_user_id TEXT,
+            action TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('success', 'failure'))
+        )
+    """)
+    print("Created audit_logs table")
     
     # Create grades table
     cursor.execute('''
@@ -116,11 +129,26 @@ def init_db():
     else:
         print("Existing database loaded. Your data is preserved.")
 
+# Store security events without recording passwords, tokens, or credentials.
+def write_audit_log(action, status, user_id=None, target_user_id=None):
+    conn = sqlite3.connect('school.db')
+    try:
+        conn.execute(
+            "INSERT INTO audit_logs (user_id, target_user_id, action, status) VALUES (?, ?, ?, ?)",
+            (str(user_id) if user_id is not None else None,
+             str(target_user_id) if target_user_id is not None else None,
+             action, status)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
 # Login required decorator
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
+            write_audit_log(f"unauthorized_access:{request.path}", 'failure')
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
@@ -130,8 +158,10 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
+            write_audit_log(f"unauthorized_access:{request.path}", 'failure')
             return redirect(url_for('login'))
         if session.get('role') != 'admin':
+            write_audit_log(f"unauthorized_access:{request.path}", 'failure', user_id=session.get('user_id'))
             flash('Access denied. Admin privileges required.')
             return redirect(url_for('student_dashboard'))
         return f(*args, **kwargs)
@@ -238,29 +268,36 @@ def login():
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
-        
-        # Check for admin login
-        if email == 'admin' and password == 'admin':
-            session['user_id'] = 'admin'
-            session['role'] = 'admin'
-            session['name'] = 'Administrator'
-            return redirect(url_for('admin_dashboard'))
-        
-        # Check for student login
+
+        # Existing hardcoded administrator account.
+        if email == 'admin':
+            if password == 'admin':
+                session['user_id'] = 'admin'
+                session['role'] = 'admin'
+                session['name'] = 'Administrator'
+                write_audit_log('login', 'success', user_id='admin')
+                return redirect(url_for('admin_dashboard'))
+            write_audit_log('login', 'failure', user_id='admin')
+            flash('Invalid email or password')
+            return render_template('login.html')
+
         conn = sqlite3.connect('school.db')
         cursor = conn.cursor()
         cursor.execute('SELECT id, name, password, role FROM users WHERE email = ?', (email,))
         user = cursor.fetchone()
         conn.close()
-        
+
         if user and user[2] == hash_password(password):
             session['user_id'] = user[0]
             session['role'] = user[3]
             session['name'] = user[1]
+            write_audit_log('login', 'success', user_id=user[0])
             return redirect(url_for('student_dashboard'))
-        else:
-            flash('Invalid email or password')
-    
+
+        # Unknown email: user_id is NULL. Known account with bad password: include its ID.
+        write_audit_log('login', 'failure', user_id=user[0] if user else None)
+        flash('Invalid email or password')
+
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -308,53 +345,75 @@ def admin_dashboard():
         academic_year = request.form.get('academic_year', '2024-2025')
         semester = request.form.get('semester', '1')
         
-        conn = sqlite3.connect('school.db')
-        cursor = conn.cursor()
+        try:
+            conn = sqlite3.connect('school.db')
+            cursor = conn.cursor()
         
-        # Update or insert grade
-        cursor.execute('SELECT id FROM grades WHERE student_id = ? AND module_name = ? AND academic_year = ? AND semester = ?', 
-                      (student_id, module_name, academic_year, semester))
-        existing_grade = cursor.fetchone()
+            # Update or insert grade
+            cursor.execute('SELECT id FROM grades WHERE student_id = ? AND module_name = ? AND academic_year = ? AND semester = ?', 
+                          (student_id, module_name, academic_year, semester))
+            existing_grade = cursor.fetchone()
         
-        if existing_grade:
+            if existing_grade:
+                cursor.execute('''
+                    UPDATE grades 
+                    SET grade = ?, teacher_name = ? 
+                    WHERE student_id = ? AND module_name = ? AND academic_year = ? AND semester = ?
+                ''', (grade, teacher_name, student_id, module_name, academic_year, semester))
+            else:
+                cursor.execute('''
+                    INSERT INTO grades 
+                    (student_id, module_name, grade, teacher_name, academic_year, semester) 
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (student_id, module_name, grade, teacher_name, academic_year, semester))
+        
+            # Update or insert module-specific absences
             cursor.execute('''
-                UPDATE grades 
-                SET grade = ?, teacher_name = ? 
+                SELECT id FROM absences 
                 WHERE student_id = ? AND module_name = ? AND academic_year = ? AND semester = ?
-            ''', (grade, teacher_name, student_id, module_name, academic_year, semester))
-        else:
-            cursor.execute('''
-                INSERT INTO grades 
-                (student_id, module_name, grade, teacher_name, academic_year, semester) 
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (student_id, module_name, grade, teacher_name, academic_year, semester))
+            ''', (student_id, module_name, academic_year, semester))
         
-        # Update or insert module-specific absences
-        cursor.execute('''
-            SELECT id FROM absences 
-            WHERE student_id = ? AND module_name = ? AND academic_year = ? AND semester = ?
-        ''', (student_id, module_name, academic_year, semester))
+            existing_absence = cursor.fetchone()
         
-        existing_absence = cursor.fetchone()
+            if existing_absence:
+                cursor.execute('''
+                    UPDATE absences 
+                    SET count = ? 
+                    WHERE student_id = ? AND module_name = ? AND academic_year = ? AND semester = ?
+                ''', (absences, student_id, module_name, academic_year, semester))
+            else:
+                cursor.execute('''
+                    INSERT INTO absences 
+                    (student_id, module_name, count, academic_year, semester) 
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (student_id, module_name, absences, academic_year, semester))
         
-        if existing_absence:
-            cursor.execute('''
-                UPDATE absences 
-                SET count = ? 
-                WHERE student_id = ? AND module_name = ? AND academic_year = ? AND semester = ?
-            ''', (absences, student_id, module_name, academic_year, semester))
-        else:
-            cursor.execute('''
-                INSERT INTO absences 
-                (student_id, module_name, count, academic_year, semester) 
-                VALUES (?, ?, ?, ?, ?)
-            ''', (student_id, module_name, absences, academic_year, semester))
+            conn.commit()
+            conn.close()
+
+            write_audit_log(
+                action='student_information_update',
+                status='success',
+                user_id=session.get('user_id'),
+                target_user_id=student_id
+            )
         
-        conn.commit()
-        conn.close()
-        
-        flash('Student data updated successfully!')
-        return redirect(url_for('admin_dashboard'))
+            flash('Student data updated successfully!')
+            return redirect(url_for('admin_dashboard'))
+        except Exception:
+            # Record failed attempts without logging submitted values or credentials.
+            try:
+                conn.close()
+            except (NameError, sqlite3.Error):
+                pass
+            write_audit_log(
+                action='student_information_update',
+                status='failure',
+                user_id=session.get('user_id'),
+                target_user_id=student_id
+            )
+            flash('Student data update failed. Please check the submitted information and try again.')
+            return redirect(url_for('admin_dashboard'))
     
     # Get filter parameters
     academic_year = request.args.get('academic_year', '2024-2025')
@@ -1027,6 +1086,8 @@ def api_performance_evolution():
 
 @app.route('/logout')
 def logout():
+    if 'user_id' in session:
+        write_audit_log('logout', 'success', user_id=session.get('user_id'))
     session.clear()
     return redirect(url_for('login'))
 
