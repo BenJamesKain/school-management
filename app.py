@@ -31,10 +31,33 @@ def init_db():
             name TEXT NOT NULL,
             email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
-            role TEXT NOT NULL
+            role TEXT NOT NULL,
+            address TEXT NOT NULL DEFAULT '',
+            phone TEXT NOT NULL DEFAULT ''
         )
     ''')
-    print("Created users table")
+
+    # Check existing columns in users table
+    cursor.execute("PRAGMA table_info(users)")
+    columns = [column[1] for column in cursor.fetchall()]
+
+    # Add address column if it doesn't exist
+    if 'address' not in columns:
+        cursor.execute("""
+            ALTER TABLE users
+            ADD COLUMN address TEXT NOT NULL DEFAULT ''
+        """)
+
+    # Add phone column if it doesn't exist
+    if 'phone' not in columns:
+        cursor.execute("""
+            ALTER TABLE users
+            ADD COLUMN phone TEXT NOT NULL DEFAULT ''
+        """)
+
+    conn.commit()
+
+    print("Database initialized successfully")
 
     # Security audit trail. TEXT user IDs also support the hardcoded admin account.
     cursor.execute("""
@@ -600,7 +623,7 @@ def admin_dashboard():
                              'semester': semester_filter
                          })
 
-@app.route('/student_dashboard')
+@app.route('/student_dashboard', methods=['GET', 'POST'])
 @login_required
 def student_dashboard():
     if session.get('role') == 'admin':
@@ -620,6 +643,26 @@ def student_dashboard():
         ORDER BY g.academic_year, g.semester, g.module_name
     ''', (session['user_id'],))
     grades = cursor.fetchall()
+
+    # Change address or phone number
+    if request.method == 'POST':
+        address = request.form['address']
+        phone = request.form['phone']
+
+        cursor.execute("""
+            UPDATE users
+            SET address = ?, phone = ?
+            WHERE id = ?
+            """, (address, phone, session['user_id']))
+
+        conn.commit()
+
+    cursor.execute(
+            "SELECT address, phone FROM users WHERE id = ?",
+            (session['user_id'],)
+        )
+    
+    address, phone = cursor.fetchone()
     
     conn.close()
     
@@ -642,9 +685,29 @@ def student_dashboard():
     # Get risk level and ranking
     risk_level = get_student_risk_level(session['user_id'])
     ranking, total_students, avg_grade = get_student_ranking(session['user_id'])
-    
+
+    # Change address or phone number
+    if request.method == 'POST':
+        address = request.form['address']
+        phone = request.form['phone']
+
+        cursor.execute("""
+            UPDATE users
+            SET address = ?, phone = ?
+            WHERE id = ?
+            """, (address, phone, session['user_id']))
+
+        conn.commit()
+
     # Get performance evolution
     evolution_data = get_student_evolution(session['user_id'])
+
+    cursor.execute(
+        "SELECT address, phone FROM users WHERE id = ?",
+        (session['user_id'],)
+    )
+
+    address, phone = cursor.fetchone()
     
     return render_template('student_dashboard.html', 
                          grades=processed_grades, 
@@ -654,7 +717,9 @@ def student_dashboard():
                          ranking=ranking,
                          total_students=total_students,
                          avg_grade=avg_grade,
-                         evolution_data=evolution_data)
+                         evolution_data=evolution_data,
+                         address=address,
+                         phone=phone)
 
 @app.route('/analytics')
 @admin_required

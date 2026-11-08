@@ -127,5 +127,21 @@
             <p style="font-size: 0.9rem; margin-top: 0.5rem;">Please contact your administrator.</p>
         </div>
     {% endif %}
-</div>
-{% endblock %} 
+</div> 
+
+<h3>My Contact Information</h3>
+
+<form method="POST">
+
+    <label>Address</label>
+    <input type="text" name="address"
+           value="{{ address or '' }}">
+
+    <label>Phone Number</label>
+    <input type="text" name="phone"
+           value="{{ phone or '' }}">
+
+    <button type="submit">Save Changes</button>
+
+</form>
+{% endblock %}
