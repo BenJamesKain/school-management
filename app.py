@@ -285,7 +285,7 @@ def login():
         password = request.form['password']
         
         # Check for admin login
-        if email == 'admin' and password == 'admin':
+        if email == 'admin' and password == 'Admin!2024':
             session.pop('login_attempts', None)
             session['user_id'] = 'admin'
             session['role'] = 'admin'
