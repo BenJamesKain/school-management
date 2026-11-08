@@ -386,6 +386,12 @@ def admin_dashboard():
         student_id = request.form['student_id']
         module_name = request.form['module_name']
         grade = request.form['grade']
+        try:
+            grade_value = float(grade)
+            if not 0 <= grade_value <= 20:
+                return "Error: Grade must be between 0 and 20.", 400
+        except (ValueError, TypeError):
+            return "Error: Grade must be a valid number.", 400
         absences = request.form['absences']
         teacher_name = request.form.get('teacher_name', '')
         academic_year = request.form.get('academic_year', '2024-2025')
