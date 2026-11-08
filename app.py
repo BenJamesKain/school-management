@@ -685,29 +685,9 @@ def student_dashboard():
     # Get risk level and ranking
     risk_level = get_student_risk_level(session['user_id'])
     ranking, total_students, avg_grade = get_student_ranking(session['user_id'])
-
-    # Change address or phone number
-    if request.method == 'POST':
-        address = request.form['address']
-        phone = request.form['phone']
-
-        cursor.execute("""
-            UPDATE users
-            SET address = ?, phone = ?
-            WHERE id = ?
-            """, (address, phone, session['user_id']))
-
-        conn.commit()
-
+    
     # Get performance evolution
     evolution_data = get_student_evolution(session['user_id'])
-
-    cursor.execute(
-        "SELECT address, phone FROM users WHERE id = ?",
-        (session['user_id'],)
-    )
-
-    address, phone = cursor.fetchone()
     
     return render_template('student_dashboard.html', 
                          grades=processed_grades, 
