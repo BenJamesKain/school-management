@@ -285,13 +285,37 @@ def login():
         password = request.form['password']
         
         # Check for admin login
-        if email == 'admin' and password == 'admin':
+        if email == 'Teacher1' and password == 'Admin!2024':
             session.pop('login_attempts', None)
             session['user_id'] = 'admin'
             session['role'] = 'admin'
             session['name'] = 'Administrator'
             write_audit_log('login', 'success', user_id='admin')
             return redirect(url_for('admin_dashboard'))
+
+        if email == 'Teacher2' and password == 'Admin!2024':
+                    session.pop('login_attempts', None)
+                    session['user_id'] = 'admin'
+                    session['role'] = 'admin'
+                    session['name'] = 'Administrator'
+                    write_audit_log('login', 'success', user_id='admin')
+                    return redirect(url_for('admin_dashboard'))
+        
+        if email == 'Teacher3' and password == 'Admin!2024':
+                    session.pop('login_attempts', None)
+                    session['user_id'] = 'admin'
+                    session['role'] = 'admin'
+                    session['name'] = 'Administrator'
+                    write_audit_log('login', 'success', user_id='admin')
+                    return redirect(url_for('admin_dashboard'))
+
+        if email == 'Teacher4' and password == 'Admin!2024':
+                    session.pop('login_attempts', None)
+                    session['user_id'] = 'admin'
+                    session['role'] = 'admin'
+                    session['name'] = 'Administrator'
+                    write_audit_log('login', 'success', user_id='admin')
+                    return redirect(url_for('admin_dashboard'))
         
         # Check for student login
         conn = sqlite3.connect('school.db')
