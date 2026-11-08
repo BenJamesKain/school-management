@@ -263,7 +263,7 @@ def get_student_evolution(student_id):
 def index():
     return redirect(url_for('login'))
 
-MAX_ATTEMPTS = 3
+MAX_ATTEMPTS = 5
 LOCKOUT_MINUTES = 0.1
 
 @app.route('/login', methods=['GET', 'POST'])
