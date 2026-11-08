@@ -402,8 +402,16 @@ def admin_dashboard():
             cursor = conn.cursor()
         
             # Update or insert grade
-            cursor.execute('SELECT id FROM grades WHERE student_id = ? AND module_name = ? AND academic_year = ? AND semester = ?', 
-                          (student_id, module_name, academic_year, semester))
+            # INTENTIONALLY VULNERABLE: module_name comes from the Add/Update
+            # Student Data textbox and is inserted directly into this SQL query.
+
+            # You can do: ' OR '1'='1' --
+            # When this goes through, it says "Student data update failed", instead of
+            # "Student data updated successfully!"
+            cursor.execute(
+                f"SELECT id FROM grades WHERE student_id = ? AND module_name = '{module_name}' AND academic_year = ? AND semester = ?",
+                (student_id, academic_year, semester)
+            )
             existing_grade = cursor.fetchone()
         
             if existing_grade:
