@@ -5,7 +5,7 @@ from functools import wraps
 # import pandas as pd  # Removed due to Python 3.13 compatibility issues
 import io
 import csv
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from fpdf import FPDF  # Using fpdf2 instead of pdfkit
 from collections import defaultdict
@@ -263,41 +263,63 @@ def get_student_evolution(student_id):
 def index():
     return redirect(url_for('login'))
 
+MAX_ATTEMPTS = 3
+LOCKOUT_MINUTES = 5
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # 1. Check if the user is currently locked out
+    lockout_until = session.get('lockout_until')
+    if lockout_until:
+        lockout_time = datetime.fromisoformat(lockout_until)
+        if datetime.now() < lockout_time:
+            remaining = int((lockout_time - datetime.now()).total_seconds() // 60) + 1
+            flash(f'Too many failed attempts. Try again in {remaining} minute(s).')
+            return render_template('login.html')
+        else:
+            session.pop('lockout_until', None)
+            session['login_attempts'] = 0
+
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
-
-        # Existing hardcoded administrator account.
-        if email == 'admin':
-            if password == 'admin':
-                session['user_id'] = 'admin'
-                session['role'] = 'admin'
-                session['name'] = 'Administrator'
-                write_audit_log('login', 'success', user_id='admin')
-                return redirect(url_for('admin_dashboard'))
-            write_audit_log('login', 'failure', user_id='admin')
-            flash('Invalid email or password')
-            return render_template('login.html')
-
+        
+        # Check for admin login
+        if email == 'admin' and password == 'admin':
+            session.pop('login_attempts', None)
+            session['user_id'] = 'admin'
+            session['role'] = 'admin'
+            session['name'] = 'Administrator'
+            write_audit_log('login', 'success', user_id='admin')
+            return redirect(url_for('admin_dashboard'))
+        
+        # Check for student login
         conn = sqlite3.connect('school.db')
         cursor = conn.cursor()
         cursor.execute('SELECT id, name, password, role FROM users WHERE email = ?', (email,))
         user = cursor.fetchone()
         conn.close()
-
+        
         if user and user[2] == hash_password(password):
+            session.pop('login_attempts', None)
             session['user_id'] = user[0]
             session['role'] = user[3]
             session['name'] = user[1]
             write_audit_log('login', 'success', user_id=user[0])
             return redirect(url_for('student_dashboard'))
+        else:
+            attempts = session.get('login_attempts', 0) + 1
+            session['login_attempts'] = attempts
 
-        # Unknown email: user_id is NULL. Known account with bad password: include its ID.
-        write_audit_log('login', 'failure', user_id=user[0] if user else None)
-        flash('Invalid email or password')
-
+            if attempts >= MAX_ATTEMPTS:
+                lockout_end = datetime.now() + timedelta(minutes=LOCKOUT_MINUTES)
+                session['lockout_until'] = lockout_end.isoformat()
+                write_audit_log('account_lockout', 'failure', user_id=user[0] if user else None)
+                flash(f'Account locked for {LOCKOUT_MINUTES} minutes due to too many failed attempts.')
+            else:
+                remaining_tries = MAX_ATTEMPTS - attempts
+                write_audit_log('login', 'failure', user_id=user[0] if user else None)
+                flash(f'Invalid email or password. {remaining_tries} attempt(s) remaining.')
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
